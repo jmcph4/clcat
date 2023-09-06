@@ -33,14 +33,13 @@ struct DefaultBehaviour {
 async fn main() -> Result<(), ClCatError> {
     pretty_env_logger::init();
 
-    let _opts: Opts = Opts::parse();
-
-    info!("Initialised!");
+    let opts: Opts = Opts::parse();
 
     // Create a random PeerId
     let id_keys = identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(id_keys.public());
-    println!("Local peer id: {local_peer_id}");
+
+    info!("Local peer id: {local_peer_id}");
 
     // Set up an encrypted DNS-enabled TCP Transport over the yamux protocol.
     let tcp_transport = tcp::tokio::Transport::new(tcp::Config::default().nodelay(true))
@@ -91,11 +90,14 @@ async fn main() -> Result<(), ClCatError> {
     // Read full lines from stdin
     let mut stdin = LinesStream::new(io::BufReader::new(io::stdin()).lines()).fuse();
 
-    // Listen on all interfaces and whatever port the OS assigns
-    swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
-    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
-
-    println!("Enter messages via STDIN and they will be sent to connected peers using Gossipsub");
+    if opts.listen_address.is_empty() && opts.dial_address.is_empty() {
+        swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
+        swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+    } else {
+        for addr in opts.listen_address {
+            swarm.listen_on(addr)?;
+        }
+    }
 
     // Kick it off
     loop {
@@ -104,19 +106,19 @@ async fn main() -> Result<(), ClCatError> {
                 if let Err(e) = swarm
                     .behaviour_mut().gossipsub
                     .publish(topic.clone(), line?.as_bytes()) {
-                    println!("Publish error: {e:?}");
+                    info!("Publish error: {e:?}");
                 }
             },
             event = swarm.select_next_some() => match event {
                 SwarmEvent::Behaviour(DefaultBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                     for (peer_id, _multiaddr) in list {
-                        println!("mDNS discovered a new peer: {peer_id}");
+                        info!("mDNS discovered a new peer: {peer_id}");
                         swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
                     }
                 },
                 SwarmEvent::Behaviour(DefaultBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
                     for (peer_id, _multiaddr) in list {
-                        println!("mDNS discover peer has expired: {peer_id}");
+                        info!("mDNS discover peer has expired: {peer_id}");
                         swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
                     }
                 },
@@ -124,12 +126,12 @@ async fn main() -> Result<(), ClCatError> {
                     propagation_source: peer_id,
                     message_id: id,
                     message,
-                })) => println!(
+                })) => info!(
                         "Got message: '{}' with id: {id} from peer: {peer_id}",
                         String::from_utf8_lossy(&message.data),
                     ),
                 SwarmEvent::NewListenAddr { address, .. } => {
-                    println!("Local node is listening on {address}");
+                    info!("Local node is listening on {address}");
                 }
                 _ => {}
             }
