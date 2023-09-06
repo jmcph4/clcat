@@ -1,13 +1,13 @@
 use clap::Parser;
 use log::info;
 
-use crate::{cli::Opts, error::FoobarError};
+use crate::{cli::Opts, error::ClCatError};
 
 mod cli;
 mod error;
 
 #[tokio::main]
-async fn main() -> Result<(), FoobarError> {
+async fn main() -> Result<(), ClCatError> {
     pretty_env_logger::init();
 
     let _opts: Opts = Opts::parse();
