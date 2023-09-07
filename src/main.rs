@@ -8,7 +8,7 @@ use libp2p::{
     swarm::{SwarmBuilder, SwarmEvent},
     tcp, yamux, PeerId, Transport,
 };
-use log::info;
+use log::{error, info};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
@@ -42,17 +42,23 @@ async fn main() -> Result<(), ClCatError> {
     info!("Local peer id: {local_peer_id}");
 
     // Set up an encrypted DNS-enabled TCP Transport over the yamux protocol.
-    let tcp_transport = tcp::tokio::Transport::new(tcp::Config::default().nodelay(true))
-        .upgrade(upgrade::Version::V1Lazy)
-        .authenticate((noise::Config::new(&id_keys))?)
-        .multiplex(yamux::Config::default())
-        .timeout(std::time::Duration::from_secs(20))
-        .boxed();
-    let quic_transport = quic::tokio::Transport::new(quic::Config::new(&id_keys));
+    let tcp_transport =
+        tcp::tokio::Transport::new(tcp::Config::default().nodelay(true))
+            .upgrade(upgrade::Version::V1Lazy)
+            .authenticate((noise::Config::new(&id_keys))?)
+            .multiplex(yamux::Config::default())
+            .timeout(std::time::Duration::from_secs(20))
+            .boxed();
+    let quic_transport =
+        quic::tokio::Transport::new(quic::Config::new(&id_keys));
     let transport = OrTransport::new(quic_transport, tcp_transport)
         .map(|either_output, _| match either_output {
-            Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
-            Either::Right((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
+            Either::Left((peer_id, muxer)) => {
+                (peer_id, StreamMuxerBox::new(muxer))
+            }
+            Either::Right((peer_id, muxer)) => {
+                (peer_id, StreamMuxerBox::new(muxer))
+            }
         })
         .boxed();
 
@@ -82,13 +88,18 @@ async fn main() -> Result<(), ClCatError> {
 
     // Create a Swarm to manage peers and events
     let mut swarm = {
-        let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
+        let mdns = mdns::tokio::Behaviour::new(
+            mdns::Config::default(),
+            local_peer_id,
+        )?;
         let behaviour = DefaultBehaviour { gossipsub, mdns };
-        SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build()
+        SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id)
+            .build()
     };
 
     // Read full lines from stdin
-    let mut stdin = LinesStream::new(io::BufReader::new(io::stdin()).lines()).fuse();
+    let mut stdin =
+        LinesStream::new(io::BufReader::new(io::stdin()).lines()).fuse();
 
     if opts.listen_address.is_empty() && opts.dial_address.is_empty() {
         swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
@@ -106,7 +117,7 @@ async fn main() -> Result<(), ClCatError> {
                 if let Err(e) = swarm
                     .behaviour_mut().gossipsub
                     .publish(topic.clone(), line?.as_bytes()) {
-                    info!("Publish error: {e:?}");
+                    error!("Publish error: {e:?}");
                 }
             },
             event = swarm.select_next_some() => match event {
