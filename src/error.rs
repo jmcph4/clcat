@@ -1,6 +1,6 @@
 use std::{error::Error, fmt};
 
-use libp2p::{gossipsub::SubscriptionError, TransportError};
+use libp2p::{gossipsub::SubscriptionError, swarm::DialError, TransportError};
 
 pub const ERROR_CLIENT_INIT: u8 = 1u8;
 
@@ -69,6 +69,12 @@ impl From<std::io::Error> for ClCatError {
     }
 }
 
+impl From<&std::io::Error> for ClCatError {
+    fn from(value: &std::io::Error) -> Self {
+        todo!()
+    }
+}
+
 impl From<&str> for ClCatError {
     fn from(value: &str) -> Self {
         todo!()
@@ -77,6 +83,12 @@ impl From<&str> for ClCatError {
 
 impl From<libp2p::noise::Error> for ClCatError {
     fn from(value: libp2p::noise::Error) -> Self {
+        todo!()
+    }
+}
+
+impl From<libp2p::swarm::DialError> for ClCatError {
+    fn from(value: libp2p::swarm::DialError) -> Self {
         todo!()
     }
 }

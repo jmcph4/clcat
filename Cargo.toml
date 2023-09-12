@@ -12,3 +12,5 @@ pretty_env_logger = "0.4.0"
 log = "0.4.17"
 libp2p = { version = "0.52.3", features = ["tokio", "gossipsub", "mdns", "noise", "macros", "tcp", "yamux", "quic"] }
 tokio-stream = { version = "0.1.14", features = ["io-util"] }
+lighthouse_network = { git = "https://github.com/sigp/lighthouse" }
+types = { git = "https://github.com/sigp/lighthouse" }

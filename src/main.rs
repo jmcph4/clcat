@@ -8,6 +8,8 @@ use libp2p::{
     swarm::{SwarmBuilder, SwarmEvent},
     tcp, yamux, PeerId, Transport,
 };
+use lighthouse_network::types::GossipEncoding;
+use lighthouse_network::GossipTopic;
 use log::{error, info};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -17,16 +19,54 @@ use tokio::{
     select,
 };
 use tokio_stream::wrappers::LinesStream;
+use types::{ForkContext, ForkName};
 
 use crate::{cli::Opts, error::ClCatError};
 
 mod cli;
 mod error;
 
+pub struct ForkDigest(pub [u8; 4]);
+
+impl From<ForkName> for ForkDigest {
+    fn from(value: ForkName) -> Self {
+        ForkDigest(match value {
+            ForkName::Base => [181, 48, 63, 42],
+            ForkName::Altair => [175, 202, 171, 160],
+            ForkName::Merge => [74, 38, 197, 139],
+            ForkName::Capella => [187, 164, 218, 150],
+        })
+    }
+}
+
+impl Default for ForkDigest {
+    fn default() -> Self {
+        default_fork().into()
+    }
+}
+
+fn default_fork() -> ForkName {
+    ForkName::Capella
+}
+
 #[derive(NetworkBehaviour)]
 struct DefaultBehaviour {
     gossipsub: gossipsub::Behaviour,
     mdns: mdns::tokio::Behaviour,
+}
+
+fn gossipsub_topics() -> Vec<GossipTopic> {
+    lighthouse_network::types::core_topics_to_subscribe(default_fork())
+        .iter()
+        .cloned()
+        .map(|kind| {
+            GossipTopic::new(
+                kind,
+                GossipEncoding::default(),
+                ForkDigest::default().0,
+            )
+        })
+        .collect()
 }
 
 #[tokio::main]
@@ -81,10 +121,11 @@ async fn main() -> Result<(), ClCatError> {
         gossipsub::MessageAuthenticity::Signed(id_keys),
         gossipsub_config,
     )?;
-    // Create a Gossipsub topic
-    let topic = gossipsub::IdentTopic::new("test-net");
-    // subscribes to our topic
-    gossipsub.subscribe(&topic)?;
+
+    for topic in gossipsub_topics() {
+        info!("Subscribing to gossipsub topic: {}...", &topic);
+        gossipsub.subscribe(&topic.into())?;
+    }
 
     // Create a Swarm to manage peers and events
     let mut swarm = {
@@ -106,7 +147,13 @@ async fn main() -> Result<(), ClCatError> {
         swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
     } else {
         for addr in opts.listen_address {
+            info!("Listening on {}...", &addr);
             swarm.listen_on(addr)?;
+        }
+
+        for addr in opts.dial_address {
+            info!("Dialling {}...", &addr);
+            swarm.dial(addr)?;
         }
     }
 
@@ -114,10 +161,12 @@ async fn main() -> Result<(), ClCatError> {
     loop {
         select! {
             line = stdin.select_next_some() => {
-                if let Err(e) = swarm
-                    .behaviour_mut().gossipsub
-                    .publish(topic.clone(), line?.as_bytes()) {
-                    error!("Publish error: {e:?}");
+                for topic in gossipsub_topics() {
+                    if let Err(e) = swarm
+                        .behaviour_mut().gossipsub
+                        .publish(gossipsub::Topic::from(topic.clone()), line.as_ref()?.as_bytes()) {
+                        error!("Publish error: {e:?}");
+                    }
                 }
             },
             event = swarm.select_next_some() => match event {
